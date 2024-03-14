@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Schema;
 
 namespace AES
 {
@@ -11,36 +12,18 @@ namespace AES
     {
         static void Main(string[] args)
         {
-            byte[] key = Encoding.ASCII.GetBytes("aaaaaaaaaaaaaaaa");
-            Console.WriteLine(Encoding.ASCII.GetString(key));
+            byte[] key = Key.GenerateRandomKey(16);
 
-            string str = "Hello";
+            string str = "Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's" +
+                " standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type " +
+                "specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially " +
+                "unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently " +
+                "with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum";
 
-            byte[] bytes = Encoding.UTF8.GetBytes(str);
+           
+            var result = AES.Encrypt(str, key);
 
-            byte[] byt = new byte[bytes.Length + (16 - bytes.Length)];
-
-
-            for (int i = 0; i < byt.Length; i++)
-                if (i < bytes.Length)
-                    byt[i] = bytes[i];
-                else
-                    byt[i] = (byte)'\0';
-
-            Console.WriteLine(BitConverter.ToString(byt).Replace("-", ""));
-
-
-            byte[] wkey = AES.KeyExpansion(key);
-
-            byte[] result = AES.Cipher(byt, 10, wkey);
-
-            Console.WriteLine(BitConverter.ToString(result));
-
-            result = AES.InvChipher(result, 10, wkey);
-
-            Console.WriteLine(BitConverter.ToString(result));
-
-            Console.WriteLine(Encoding.UTF8.GetString(result));
+            Console.WriteLine(AES.Decrypt(result, key));
 
         }
 
@@ -48,14 +31,13 @@ namespace AES
 
     public class Key
     {
-        static Random r = new Random();
-        public static byte[] GenerateKey()
+        static public byte[] GenerateRandomKey(int keySize)
         {
+            byte[] key = new byte[keySize];
 
-            byte[] key = new byte[16];
-            for (int i = 0; i < 16; ++i)
+            using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
             {
-                key[i] = (byte)r.Next(256);
+                rng.GetBytes(key);
             }
 
             return key;
@@ -64,7 +46,7 @@ namespace AES
 
     public class AES
     {
-        static byte[,] sBox =
+        private static byte[,] sBox =
         {
         // Linia 0
         { 0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76 },
@@ -99,7 +81,7 @@ namespace AES
         // Linia 15
         { 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16 }
     };
-        static byte[,] InvSBox =  {
+        private static byte[,] InvSBox =  {
         {0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb},
         {0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb},
         {0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e},
@@ -118,15 +100,33 @@ namespace AES
         {0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d}
     };
 
-        static int Nk = 4;
-        static int Nr = 10;
+        private static int Nk = 4;
+        private static int Nr = 10;
 
-        static byte[] Rcon = { 0x0, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
-
-
+        private static byte[] Rcon = { 0x0, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
 
 
-        public static byte[] KeyExpansion(byte[] key)
+        private const int modulus = 0x1B; // x^8 + x^4 + x^3 + x + 1
+
+        // Multiply two numbers in GF(2^8)
+        private static byte Multiply(byte a, byte b)
+        {
+            byte result = 0;
+            byte carry;
+            for (int i = 0; i < 8; i++)
+            {
+                if ((b & 1) != 0)
+                    result ^= a;
+                carry = (byte)(a & 0x80);
+                a <<= 1;
+                if (carry != 0)
+                    a ^= modulus;
+                b >>= 1;
+            }
+            return result;
+        }
+
+        private static byte[] KeyExpansion(byte[] key)
         {
             byte[] w = new byte[16 * (Nr + 1)];
 
@@ -174,7 +174,7 @@ namespace AES
             return w;
         }
 
-        public static byte[,] AddRoundKey(byte[,] input, byte[,] w)
+        private static byte[,] AddRoundKey(byte[,] input, byte[,] w)
         {
             //iterate a matrix
             for (int i = 0; i < 4; i++)
@@ -184,7 +184,7 @@ namespace AES
             return input;
         }
 
-        public static byte[,] copyWKey(byte[] wkey, int n)
+        private static byte[,] CopyWKey(byte[] wkey, int n)
         {
             byte[,] w = new byte[4, 4];
             for (int i = 0; i < 16; ++i)
@@ -194,7 +194,7 @@ namespace AES
             return w;
         }
 
-        public static byte[,] SubBytes(byte[,] state)
+        private static byte[,] SubBytes(byte[,] state)
         {
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 4; j++)
@@ -203,7 +203,7 @@ namespace AES
             return state;
         }
 
-        public static byte[] SubWord(byte[] bytes)
+        private static byte[] SubWord(byte[] bytes)
         {
             for (int i = 0; i < 4; ++i)
                 bytes[i] = sBox[bytes[i] >> 4, bytes[i] & 0x0f];
@@ -211,7 +211,7 @@ namespace AES
             return bytes;
         }
 
-        public static byte[,] InvSubBytes(byte[,] state)
+        private static byte[,] InvSubBytes(byte[,] state)
         {
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 4; j++)
@@ -220,7 +220,7 @@ namespace AES
             return state;
         }
 
-        public static byte[,] ShiftRows(byte[,] state)
+        private static byte[,] ShiftRows(byte[,] state)
         {
             byte[,] newState = new byte[4, 4];
             for (int i = 0; i < 4; i++)
@@ -230,47 +230,61 @@ namespace AES
             return newState;
         }
 
-        public static byte[,] InvShiftRows(byte[,] state)
+        private static byte[,] InvShiftRows(byte[,] state)
         {
-            byte[,] newState = new byte[4, 4];
-            for (int i = 0; i < 4; i++)
-                for (int j = 0; j < 4; j++)
-                    newState[i, j] = state[i, Math.Abs(j - i) % 4];
+            int n = state.GetLength(0); 
 
-            return newState;
+            for (int row = 1; row < n; row++)
+            {
+                int shiftAmount = row; 
+                byte[] tempRow = new byte[n]; 
+
+                for (int col = 0; col < n; col++)
+                {
+                    int shiftedIndex = (col + shiftAmount) % n;
+                    tempRow[shiftedIndex] = state[row, col];
+                }
+
+                for (int col = 0; col < n; col++)
+                {
+                    state[row, col] = tempRow[col];
+                }
+            }
+            return state;
         }
 
-        public static byte[,] MixColumns(byte[,] state)
+
+        private static byte[,] MixColumns(byte[,] state)
         {
             byte[,] newState = new byte[4, 4];
 
             for (int c = 0; c < 4; c++)
             {
-                newState[0, c] = (byte)(state[0, c] * 2 ^ state[1, c] * 3 ^ state[2, c] ^ state[3, c]);
-                newState[1, c] = (byte)(state[0, c] ^ state[1, c] * 2 ^ state[2, c] * 3 ^ state[3, c]);
-                newState[2, c] = (byte)(state[0, c] ^ state[1, c] ^ state[2, c] * 2 ^ state[3, c] * 3);
-                newState[3, c] = (byte)(state[0, c] * 3 ^ state[1, c] ^ state[2, c] ^ state[3, c] * 2);
+                newState[0, c] = (byte)(Multiply(state[0, c], 0x02) ^ Multiply(state[1, c], 0x03) ^ state[2, c] ^ state[3, c]);
+                newState[1, c] = (byte)(state[0, c] ^ Multiply(state[1, c], 0x02) ^ Multiply(state[2, c], 0x03) ^ state[3, c]);
+                newState[2, c] = (byte)(state[0, c] ^ state[1, c] ^ Multiply(state[2, c], 2) ^ Multiply(state[3, c], 3));
+                newState[3, c] = (byte)(Multiply(state[0, c], 0x03) ^ state[1, c] ^ state[2, c] ^ Multiply(state[3, c], 0x02));
             }
 
             return newState;
         }
 
-        public static byte[,] InvMixColumns(byte[,] state)
+        private static byte[,] InvMixColumns(byte[,] state)
         {
             byte[,] newState = new byte[4, 4];
 
             for (int c = 0; c < 4; c++)
             {
-                newState[0, c] = (byte)(state[0, c] * 0x0e ^ state[1, c] * 0x0b ^ state[2, c] * 0x0d ^ state[3, c] * 0x09);
-                newState[1, c] = (byte)(state[0, c] * 0x09 ^ state[1, c] * 0x0e ^ state[2, c] * 0x0b ^ state[3, c] * 0x0d);
-                newState[2, c] = (byte)(state[0, c] * 0x0d ^ state[1, c] * 0x09 ^ state[2, c] * 0x0e ^ state[3, c] * 0x0b);
-                newState[3, c] = (byte)(state[0, c] * 0x0b ^ state[1, c] * 0x0d ^ state[2, c] * 0x09 ^ state[3, c] * 0x0e);
+                newState[0, c] = (byte)(Multiply(state[0, c], 0x0e) ^ Multiply(state[1, c], 0x0b) ^ Multiply(state[2, c], 0x0d) ^ Multiply(state[3, c], 0x09));
+                newState[1, c] = (byte)(Multiply(state[0, c], 0x09) ^ Multiply(state[1, c], 0x0e) ^ Multiply(state[2, c], 0x0b) ^ Multiply(state[3, c], 0x0d));
+                newState[2, c] = (byte)(Multiply(state[0, c], 0x0d) ^ Multiply(state[1, c], 0x09) ^ Multiply(state[2, c], 0x0e) ^ Multiply(state[3, c], 0x0b));
+                newState[3, c] = (byte)(Multiply(state[0, c], 0x0b) ^ Multiply(state[1, c], 0x0d) ^ Multiply(state[2, c], 0x09) ^ Multiply(state[3, c], 0x0e));
             }
 
             return newState;
         }
 
-        public static byte[] Cipher(byte[] input, int Nr, byte[] wkey)
+        private static byte[] Cipher(byte[] input, int Nr, byte[] wkey)
         {
             byte[,] state = new byte[4, 4];
             byte[,] w = new byte[4, 4];
@@ -279,23 +293,23 @@ namespace AES
                 for (int j = 0; j < 4; ++j)
                     state[i, j] = input[i + 4 * j];
 
-            w = copyWKey(wkey, 0);
+            w = CopyWKey(wkey, 0);
 
             state = AddRoundKey(state, w);
 
             int round;
             for (round = 1; round < Nr; ++round)
             {
-                state = SubBytes(state);
-                state = ShiftRows(state);
+                var state1 = SubBytes(state);
+                state = ShiftRows(state1);
                 state = MixColumns(state);
-                w = copyWKey(wkey, 16 * round);
+                w = CopyWKey(wkey, 16 * round);
                 state = AddRoundKey(state, w);
             }
 
-            state = SubBytes(state);
-            state = ShiftRows(state);
-            w = copyWKey(wkey, 16 * round);
+            var state2 = SubBytes(state);
+            state = ShiftRows(state2);
+            w = CopyWKey(wkey, 16 * round);
             state = AddRoundKey(state, w);
 
             byte[] output = new byte[16];
@@ -306,37 +320,97 @@ namespace AES
             return output;
         }
 
-        public static byte[] InvChipher(byte[] input, int Nr, byte[] wkey)
+        private static byte[] InvChipher(byte[] input, int Nr, byte[] wkey)
         {
             byte[,] state = new byte[4, 4];
-            byte[,] w = new byte[4, 4];
+            byte[,] w;
 
             for (int i = 0; i < 4; ++i)
                 for (int j = 0; j < 4; ++j)
                     state[i, j] = input[i + 4 * j];
 
             int round = Nr;
-            w = copyWKey(wkey, 16 * round);
+            w = CopyWKey(wkey, 16 * round);
             state = AddRoundKey(state, w);
 
-            for (round = Nr - 1; round > 0; --round)
+            for (round = Nr - 1; round > 0; round--)
             {
-                state = InvShiftRows(state);
-                state = InvSubBytes(state);
-                w = copyWKey(wkey, 16 * round);
+                var state2 = InvShiftRows(state);
+                state = InvSubBytes(state2);
+                w = CopyWKey(wkey, 16 * round);
                 state = AddRoundKey(state, w);
                 state = InvMixColumns(state);
             }
 
-            state = InvShiftRows(state);
-            state = InvSubBytes(state);
-            w = copyWKey(wkey, 16 * round);
+            var state1 = InvShiftRows(state);
+            state = InvSubBytes(state1);
+            w = CopyWKey(wkey, 16 * round);
             state = AddRoundKey(state, w);
 
             byte[] output = new byte[16];
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 4; j++)
                     output[i + 4 * j] = state[i, j];
+
+            return output;
+        }
+
+        public static byte[] Encrypt(string input, byte[] key)
+        {
+            byte[] bytes = Encoding.ASCII.GetBytes(input);
+
+            int len = bytes.Length;
+
+            if (bytes.Length % 16 != 0)
+                len = bytes.Length + (16 - bytes.Length % 16);
+
+            byte[] byt = new byte[len];
+
+            Console.WriteLine(len);
+
+            for (int i = 0; i < byt.Length; i++)
+                if (i < bytes.Length)
+                    byt[i] = bytes[i];
+                else
+                    byt[i] = (byte)'\0';
+
+            var wkey = KeyExpansion(key);
+
+            var output = new byte[len];
+
+            for (int i = 0; i < byt.Length; i += 16)
+            {
+                byte[] text = new byte[16];
+                for (int j = 0; j < 16; j++)
+                    text[j] = byt[j + i];
+
+                byte[] result = AES.Cipher(text, 10, wkey);
+
+                for(int j = 0;j < 16; j++)
+                    output[i + j] = result[j];
+
+            }
+
+            return output;
+        }
+
+        public static string Decrypt(byte[] input, byte[] key)
+        {
+            if (input.Length % 16 != 0) throw new Exception();
+            string output = "";
+
+            var wkey = KeyExpansion(key);
+
+            for (int i = 0; i < input.Length; i += 16)
+            {
+                byte[] text = new byte[16];
+                for (int j = 0; j < 16; j++)
+                    text[j] = input[j + i];
+
+                byte[] result = AES.InvChipher(text, 10, wkey);
+
+                output += Encoding.ASCII.GetString(result);
+            }
 
             return output;
         }
